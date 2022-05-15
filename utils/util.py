@@ -454,18 +454,24 @@ class ConvSearchDataset(Dataset):
         self.examples = []
         for filename in filenames:
             with open(filename, encoding="utf-8") as f:
+                i = 0
                 for line in f:
                     record = json.loads(line)
-                    input_sents = record['input']
-                    target_sent = record['target']
+                    input_sents = record['input'] # history quries + current query
+                    target_sent = record['target'] # manually rewritten query 
                     auto_sent = record.get('output', "no")
-                    raw_sent = record["input"][-1]
+                    raw_sent = record["input"][-1] # current query
+                    # responses = record["manual_response"] # answer
                     responses = record[
                         "manual_response"] if args.query == "man_can" else (
                             record["automatic_response"]
                             if args.query == "auto_can" else [])
-                    topic_number = record.get('topic_number', None)
-                    query_number = record.get('query_number', None)
+                    if args.add_answer:
+                        answers = record["manual_response"]
+                        # answers = list(filter(lambda ans: ans != "CANNOTANSWER", answers))
+                        assert(len(answers) == len(input_sents))
+                    topic_number = record.get('topic_number', None) 
+                    query_number = record.get('query_number', None) 
                     qid = str(topic_number) + "_" + str(
                         query_number) if topic_number != None else str(
                             record["qid"])
@@ -477,6 +483,7 @@ class ConvSearchDataset(Dataset):
                     doc_pos = None
                     doc_negs = None
                     if mode == "train" and args.ranking_task:
+                        # only use when using ranking loss
                         doc_pos = record["doc_pos"]
                         doc_negs = record["doc_negs"]
 
@@ -487,19 +494,38 @@ class ConvSearchDataset(Dataset):
                             concat_ids.append(
                                 tokenizer.cls_token_id
                             )  # dpr (on OR-QuAC) uses BERT-style sequence [CLS] q1 [SEP] q2 [SEP] ...
-                        for sent in input_sents[:-1]:  # exlude last one
-                            if args.model_type != "dpr":
-                                concat_ids.append(
-                                    tokenizer.cls_token_id
-                                )  # RoBERTa-style sequence <s> q1 </s> <s> q2 </s> ...
-                            concat_ids.extend(
-                                tokenizer.convert_tokens_to_ids(
-                                    tokenizer.tokenize(sent)))
-                            concat_ids.append(tokenizer.sep_token_id)
+
+                        # === add previous answers to the sequence
+                        if args.add_answer:
+                            for qa in zip(input_sents[:-1], answers[:-1]):
+                                if args.model_type != "dpr":
+                                    concat_ids.append(
+                                        tokenizer.cls_token_id
+                                    )  # RoBERTa-style sequence <s> q1 </s> <s> q2 </s> ...
+                                concat_ids.extend(
+                                    tokenizer.convert_tokens_to_ids(
+                                        tokenizer.tokenize(qa[0])))
+                                concat_ids.append(tokenizer.sep_token_id)
+                                if qa[1] != "CANNOTANSWER":
+                                    concat_ids.extend(
+                                        tokenizer.convert_tokens_to_ids(
+                                            tokenizer.tokenize(qa[1])))
+                                    concat_ids.append(tokenizer.sep_token_id)
+                        else:
+                            for sent in input_sents[:-1]:  # exlude last one
+                                if args.model_type != "dpr":
+                                    concat_ids.append(
+                                        tokenizer.cls_token_id
+                                    )  # RoBERTa-style sequence <s> q1 </s> <s> q2 </s> ...
+                                concat_ids.extend(
+                                    tokenizer.convert_tokens_to_ids(
+                                        tokenizer.tokenize(sent)))
+                                concat_ids.append(tokenizer.sep_token_id)
 
                         if args.query in [
                                 "man_can", "auto_can"
                         ] and len(responses) >= 2:  # add response
+                            # pritn(responses)
                             if args.model_type != "dpr":
                                 concat_ids.append(tokenizer.cls_token_id)
                             concat_ids.extend(
@@ -564,12 +590,12 @@ class ConvSearchDataset(Dataset):
                         target_ids, target_id_mask = pad_input_ids_with_mask(
                             target_ids, args.max_query_length)
                         assert len(target_ids) == args.max_query_length
-
+                    
                     self.examples.append(
                         ConvSearchExample(qid, concat_ids, concat_id_mask,
                                           target_ids, target_id_mask, doc_pos,
                                           doc_negs, sequences))
-
+                    i += 1
     def __len__(self):
         return len(self.examples)
 
@@ -620,14 +646,16 @@ class ConvSearchDataset(Dataset):
 def tokenize_to_file(args, i, num_process, in_path, out_path, line_fn):
 
     configObj = MSMarcoConfigDict[args.model_type]
+    print(f"process {i} load bert ")
     tokenizer = configObj.tokenizer_class.from_pretrained(
         args.model_name_or_path,
         do_lower_case=True,
         cache_dir=None,
     )
-
+    print(f"process {i} bert loaded")
     with open(in_path, 'r', encoding='utf-8') if in_path[-2:] != "gz" else gzip.open(in_path, 'rt', encoding='utf8') as in_f,\
             open('{}_split{}'.format(out_path, i), 'wb') as out_f:
+        print(f"process {i} unzip file")
         for idx, line in enumerate(in_f):
             if idx % num_process != i:
                 continue
@@ -654,8 +682,11 @@ def multi_file_process(args, num_process, in_path, out_path, line_fn):
                     ))
         processes.append(p)
         p.start()
-    for p in processes:
+    print(f"multi-processing start (total {len(processes)} processes)")
+    for i, p in enumerate(processes):
         p.join()
+        print(f"process {i} joined")
+    print("multi-processing end")
 
 
 def all_gather(data):

@@ -9,6 +9,10 @@ Install dependencies:
 ```bash
 git clone https://github.com/thunlp/ConvDR.git
 cd ConvDR
+# pip
+pip install -r requirements.txt
+# conda 
+conda install pip
 pip install -r requirements.txt
 ```
 

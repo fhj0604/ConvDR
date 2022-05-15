@@ -48,17 +48,22 @@ if __name__ == "__main__":
         with open(train, "r") as f, open(queries_manual, "w") as g, open(
                 cqr, "w") as h, open(queries_raw, "w") as i:
             responses = []
+            answers = []
             last_dialog_id = None
             for line in f:
                 obj = json.loads(line)
                 qid, query = obj['qid'], obj['rewrite']
                 raw_query = obj["question"]
+                # ===
+                answer = obj["answer"]
+                # ===
                 dialog_id = qid[:qid.rfind('#')]
                 if dialog_id != last_dialog_id:
                     last_dialog_id = dialog_id
                     responses.clear()
                 cur_response = obj["answer"]["text"]
                 responses.append(cur_response)
+                answers.append(answer)
                 input_sents = []
                 for his in obj["history"]:
                     input_sents.append(his["question"])
@@ -68,7 +73,8 @@ if __name__ == "__main__":
                         "qid": qid,
                         "input": input_sents,
                         "target": query,
-                        "manual_response": responses
+                        "manual_response": responses,
+                        "answer": answers
                     }) + "\n")
                 g.write(f"{qid}\t{query}\n")
                 i.write(f"{qid}\t{raw_query}\n")

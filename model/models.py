@@ -10,6 +10,10 @@ import torch.nn.functional as F
 from data.process_fn import triple_process_fn, triple2dual_process_fn
 
 
+
+# class BertForQA()
+
+
 class EmbeddingMixin:
     """
     Mixin for common functions in most embedding models. Each model should define its own bert-like backbone and forward.

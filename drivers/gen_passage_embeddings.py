@@ -304,6 +304,7 @@ def get_arguments():
 
 def set_env(args):
     # Setup CUDA, GPU & distributed training
+    print("start setup env")
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device("cuda" if torch.cuda.is_available()
                               and not args.no_cuda else "cpu")

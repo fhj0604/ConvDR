@@ -179,6 +179,7 @@ def train(args,
             tr_loss += loss.item()
             if not args.no_mse:
                 tr_loss1 += loss1.item()
+
             if args.ranking_task:
                 tr_loss2 += loss2.item()
             del loss
@@ -248,7 +249,7 @@ def train(args,
             os.makedirs(output_dir)
         _save_checkpoint(args, model, output_dir, optimizer, scheduler,
                          global_step)
-
+    print(tr_loss, tr_loss1, tr_loss2)
     return global_step, tr_loss / global_step
 
 
@@ -432,6 +433,11 @@ def main():
         choices=["no_res", "man_can", "auto_can", "target", "output", "raw"],
         help="Input query format."
     )
+    parser.add_argument(
+        "--add_answer",
+        action='store_true',
+        help="whether to add answer in query embedding"
+    )
     args = parser.parse_args()
 
     tb_writer = SummaryWriter(log_dir=args.log_dir)
@@ -457,13 +463,13 @@ def main():
     # Set seed
     set_seed(args)
 
-    loss_fn = nn.MSELoss()
-    loss_fn.to(args.device)
-    loss_fn_2 = nn.CrossEntropyLoss()
+    loss_fn = nn.MSELoss() # kd loss
+    loss_fn.to(args.device) 
+    loss_fn_2 = nn.CrossEntropyLoss() # ranking loss
     loss_fn_2.to(args.device)
 
     if args.teacher_model == None:
-        args.teacher_model = args.model_name_or_path
+        args.teacher_model = args.model_name_or_path    # ANCE 
     _, __, teacher_model = load_model(args, args.teacher_model)
 
     if not args.cross_validate:

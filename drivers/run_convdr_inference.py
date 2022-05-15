@@ -15,8 +15,21 @@ from torch.utils.data import DataLoader
 
 from utils.util import ConvSearchDataset, NUM_FOLD, set_seed, load_model, load_collection
 
+import subprocess as sp
+import os
+from threading import Timer
+
 logger = logging.getLogger(__name__)
 
+
+
+
+def get_gpu_memory():
+    DEVICE = int(os.getenv('CUDA_VISIBLE_DEVICES'))
+    output_to_list = lambda x: x.decode('ascii').split('\n')[:-1]
+    COMMAND = "nvidia-smi --query-gpu=memory.used --format=csv"
+    memory_used = output_to_list(sp.check_output(COMMAND.split()))[DEVICE+1]
+    print(f"Memory Used: {memory_used}")
 
 def EvalDevQuery(query_embedding2id,
                  merged_D,
@@ -151,11 +164,13 @@ def evaluate(args, eval_dataset, model, logger):
         raw_sequences.extend(sequences)
 
     embedding = np.concatenate(embedding, axis=0)
+    # query embedding 
     return embedding, embedding2id, raw_sequences
 
 
 def search_one_by_one(ann_data_dir, gpu_index, query_embedding, topN):
     merged_candidate_matrix = None
+    get_gpu_memory()
     for block_id in range(8):
         logger.info("Loading passage reps " + str(block_id))
         passage_embedding = None
@@ -176,58 +191,75 @@ def search_one_by_one(ann_data_dir, gpu_index, query_embedding, topN):
         except:
             break
         print('passage embedding shape: ' + str(passage_embedding.shape))
+        print('passage embedding to id shape: ' + str(passage_embedding2id.shape))
         print("query embedding shape: " + str(query_embedding.shape))
-        gpu_index.add(passage_embedding)
-        ts = time.time()
-        D, I = gpu_index.search(query_embedding, topN)
-        te = time.time()
-        elapsed_time = te - ts
-        print({
-            "total": elapsed_time,
-            "data": query_embedding.shape[0],
-            "per_query": elapsed_time / query_embedding.shape[0]
-        })
-        candidate_id_matrix = passage_embedding2id[
-            I]  # passage_idx -> passage_id
-        D = D.tolist()
-        candidate_id_matrix = candidate_id_matrix.tolist()
-        candidate_matrix = []
-        for score_list, passage_list in zip(D, candidate_id_matrix):
-            candidate_matrix.append([])
-            for score, passage in zip(score_list, passage_list):
-                candidate_matrix[-1].append((score, passage))
-            assert len(candidate_matrix[-1]) == len(passage_list)
-        assert len(candidate_matrix) == I.shape[0]
+        passage_len = int(passage_embedding.shape[0]/2)
+        for i in range(2):            
+            _passage_embedding = passage_embedding[i*passage_len: (i+1)*passage_len]
+            # ====Testing====
+            get_gpu_memory()
+            print(f'passage embedding shape: {_passage_embedding.shape}')
+            # ===============
+            gpu_index.add(_passage_embedding)
+            get_gpu_memory()
+            ts = time.time()
+            D, I = gpu_index.search(query_embedding, topN)
+            if i == 1:
+                I += passage_len  
+            print(I)
+            print(D.shape, I.shape)
+            get_gpu_memory()
+            te = time.time()
+            elapsed_time = te - ts
+            print({
+                "total": elapsed_time,
+                "data": query_embedding.shape[0],
+                "per_query": elapsed_time / query_embedding.shape[0]
+            })
+            candidate_id_matrix = passage_embedding2id[
+                I]  # passage_idx -> passage_id
+            print(candidate_id_matrix)
+            print(candidate_id_matrix.shape)
+            D = D.tolist()
+            candidate_id_matrix = candidate_id_matrix.tolist()
+            candidate_matrix = []
+            for score_list, passage_list in zip(D, candidate_id_matrix):
+                candidate_matrix.append([])
+                for score, passage in zip(score_list, passage_list):
+                    candidate_matrix[-1].append((score, passage))
+                assert len(candidate_matrix[-1]) == len(passage_list)
+            assert len(candidate_matrix) == I.shape[0]
 
-        gpu_index.reset()
-        del passage_embedding
-        del passage_embedding2id
+            gpu_index.reset()
+            
+            get_gpu_memory()
+            if merged_candidate_matrix == None:
+                merged_candidate_matrix = candidate_matrix
+                continue
 
-        if merged_candidate_matrix == None:
-            merged_candidate_matrix = candidate_matrix
-            continue
-
-        # merge
-        merged_candidate_matrix_tmp = copy.deepcopy(merged_candidate_matrix)
-        merged_candidate_matrix = []
-        for merged_list, cur_list in zip(merged_candidate_matrix_tmp,
-                                         candidate_matrix):
-            p1, p2 = 0, 0
-            merged_candidate_matrix.append([])
-            while p1 < topN and p2 < topN:
-                if merged_list[p1][0] >= cur_list[p2][0]:
+            # merge
+            merged_candidate_matrix_tmp = copy.deepcopy(merged_candidate_matrix)
+            merged_candidate_matrix = []
+            for merged_list, cur_list in zip(merged_candidate_matrix_tmp,
+                                            candidate_matrix):
+                p1, p2 = 0, 0
+                merged_candidate_matrix.append([])
+                while p1 < topN and p2 < topN:
+                    if merged_list[p1][0] >= cur_list[p2][0]:
+                        merged_candidate_matrix[-1].append(merged_list[p1])
+                        p1 += 1
+                    else:
+                        merged_candidate_matrix[-1].append(cur_list[p2])
+                        p2 += 1
+                while p1 < topN:
                     merged_candidate_matrix[-1].append(merged_list[p1])
                     p1 += 1
-                else:
+                while p2 < topN:
                     merged_candidate_matrix[-1].append(cur_list[p2])
                     p2 += 1
-            while p1 < topN:
-                merged_candidate_matrix[-1].append(merged_list[p1])
-                p1 += 1
-            while p2 < topN:
-                merged_candidate_matrix[-1].append(cur_list[p2])
-                p2 += 1
-
+        del passage_embedding
+        del passage_embedding2id
+        get_gpu_memory()
     merged_D, merged_I = [], []
     for merged_list in merged_candidate_matrix:
         merged_D.append([])
@@ -237,7 +269,7 @@ def search_one_by_one(ann_data_dir, gpu_index, query_embedding, topN):
             merged_I[-1].append(candidate[1])
     merged_D, merged_I = np.array(merged_D), np.array(merged_I)
 
-    print(merged_I)
+    # print(merged_I, merged_I.shape, merged_D.shape)
 
     return merged_D, merged_I
 
@@ -317,6 +349,11 @@ def main():
                         default=100,
                         type=int,
                         help="Number of retrieved documents for each query.")
+    parser.add_argument(
+        "--add_answer",
+        action='store_true',
+        help="whether to add answer in query embedding"
+    )
     args = parser.parse_args()
 
     device = torch.device(
@@ -350,9 +387,10 @@ def main():
 
     logger.info("Building index")
     # faiss.omp_set_num_threads(16)
-    cpu_index = faiss.IndexFlatIP(768)
+    cpu_index = faiss.IndexFlatIP(768) # inner product
     index = None
     if args.use_gpu:
+        print("use gpu")
         co = faiss.GpuMultipleClonerOptions()
         co.shard = True
         co.usePrecomputed = False
@@ -367,9 +405,11 @@ def main():
                                                     cpu_index, co)
         index = gpu_index
     else:
+        print("use cpu")
         index = cpu_index
 
     dev_query_positive_id = {}
+    # write to qrel file 
     if args.qrels is not None:
         with open(args.qrels, 'r', encoding='utf8') as f:
             tsvreader = csv.reader(f, delimiter="\t")
@@ -387,9 +427,9 @@ def main():
     total_embedding = []
     total_embedding2id = []
     total_raw_sequences = []
-
     if not args.cross_validate:
-
+        print("not cross_validate")
+        # load ad-hoc ance model
         config, tokenizer, model = load_model(args, args.model_path)
 
         if args.max_concat_length <= 0:
@@ -399,10 +439,7 @@ def main():
 
         # eval
         logger.info("Training/evaluation parameters %s", args)
-        eval_dataset = ConvSearchDataset([args.eval_file],
-                                         tokenizer,
-                                         args,
-                                         mode="inference")
+        eval_dataset = ConvSearchDataset([args.eval_file], tokenizer, args, mode="inference")
         total_embedding, total_embedding2id, raw_sequences = evaluate(
             args, eval_dataset, model, logger)
         total_raw_sequences.extend(raw_sequences)
@@ -411,16 +448,20 @@ def main():
 
     else:
         # K-Fold Cross Validation
-
+        print("cross validate")
+        print(f"args.fold: {args.fold}, NUM_FOLD: {NUM_FOLD}")
         for i in range(NUM_FOLD):
             if args.fold != -1 and i != args.fold:
                 continue
 
             logger.info("Testing Fold #{}".format(i))
             suffix = ('-' + str(i))
+            print(f"model path: {args.model_path}")
+            print(f"suffix: {suffix}")
             config, tokenizer, model = load_model(args,
                                                   args.model_path + suffix)
-
+            args.model_path = args.model_path[:-2]
+            print(f"model path': {args.model_path}")
             if args.max_concat_length <= 0:
                 args.max_concat_length = tokenizer.max_len_single_sentence
             args.max_concat_length = min(args.max_concat_length,
@@ -441,9 +482,9 @@ def main():
 
             del model
             torch.cuda.empty_cache()
-
         total_embedding = np.concatenate(total_embedding, axis=0)
 
+    print(f"total embedding shape: {total_embedding.shape}")
     merged_D, merged_I = search_one_by_one(args.ann_data_dir, index,
                                            total_embedding, args.top_n)
     logger.info("start EvalDevQuery...")
@@ -458,7 +499,6 @@ def main():
                  raw_data_dir=args.raw_data_dir,
                  output_query_type=args.output_query_type,
                  raw_sequences=total_raw_sequences)
-
 
 if __name__ == "__main__":
     main()

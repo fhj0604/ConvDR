@@ -1,0 +1,17 @@
+if [[ $1 = "c19" ]]
+    then 
+    echo "Running CAsT-19 inference"
+    python drivers/run_convdr_inference.py  --model_path=tmp2/checkpoints/convdr-multi-cast19  --eval_file=tmp2/datasets/cast-19/eval_topics.jsonl  --query=no_res  --per_gpu_eval_batch_size=8  --cache_dir=../ann_cache_dir  --ann_data_dir=tmp2/datasets/cast-shared/embeddings  --qrels=tmp2/datasets/cast-19/qrels.tsv  --processed_data_dir=tmp2/datasets/cast-shared/tokenized  --raw_data_dir=tmp2/datasets/cast-19   --output_file=tmp2/results/cast-19/multi.jsonl  --output_trec_file=tmp2/results/cast-19/multi.trec  --model_type=rdot_nll  --output_query_type=raw  --cross_validate --use_gpu 
+    # python drivers/run_convdr_inference.py  --model_path=tmp2/checkpoints/convdr-kd-cast19  --eval_file=tmp2/datasets/cast-19/eval_topics.jsonl  --query=no_res  --per_gpu_eval_batch_size=8  --cache_dir=../ann_cache_dir  --ann_data_dir=tmp2/datasets/cast-shared/embeddings  --qrels=tmp2/datasets/cast-19/qrels.tsv  --processed_data_dir=tmp2/datasets/cast-shared/tokenized  --raw_data_dir=tmp2/datasets/cast-19   --output_file=results/cast-19/kd.jsonl  --output_trec_file=results/cast-19/kd.trec  --model_type=rdot_nll  --output_query_type=raw  --use_gpu  --cross_validate 
+elif [[ $1 = "or" ]]
+    then 
+    if [[ $2 = "answer" ]]
+        then 
+        echo "Running Or-QUAC inference (answer)"
+        python drivers/run_convdr_inference.py  --model_path=tmp2/checkpoints/convdr-multi-answer-orquac.cp-0/checkpoint-3152  --eval_file=tmp2/datasets/or-quac/test.jsonl  --query=no_res  --per_gpu_eval_batch_size=2  --cache_dir=../ann_cache_dir  --ann_data_dir=tmp2/datasets/or-quac/embeddings  --qrels=tmp2/datasets/or-quac/qrels.tsv  --processed_data_dir=tmp2/datasets/or-quac/tokenized  --raw_data_dir=tmp2/datasets/or-quac   --output_file=tmp2/results/or-quac/multi_task_answer.jsonl  --output_trec_file=tmp2/results/or-quac/multi_task_answer.trec  --model_type=dpr  --output_query_type=test.raw  --add_answer #--use_gpu
+    else
+        echo "Running Or-QUAC inference"
+        python drivers/run_convdr_inference.py  --model_path=tmp2/checkpoints/convdr-multi-orquac.cp-0/checkpoint-7882  --eval_file=tmp2/datasets/or-quac/test.jsonl  --query=no_res  --per_gpu_eval_batch_size=2 --cache_dir=../ann_cache_dir  --ann_data_dir=tmp2/datasets/or-quac/embeddings  --qrels=tmp2/datasets/or-quac/qrels.tsv  --processed_data_dir=tmp2/datasets/or-quac/tokenized  --raw_data_dir=tmp2/datasets/or-quac   --output_file=tmp2/results/or-quac/multi_task.jsonl  --output_trec_file=tmp2/results/or-quac/multi_task.trec  --model_type=dpr  --output_query_type=test.raw # --use_gpu
+    fi
+    # python drivers/run_convdr_inference.py  --model_path=tmp2/checkpoints/convdr-multi-orquac.cp-0/checkpoint-7882  --eval_file=tmp2/datasets/or-quac/test.jsonl  --query=no_res  --per_gpu_eval_batch_size=8  --cache_dir=../ann_cache_dir  --ann_data_dir=tmp2/datasets/or-quac/embeddings  --qrels=tmp2/datasets/or-quac/qrels.tsv  --processed_data_dir=tmp2/datasets/or-quac/tokenized  --raw_data_dir=tmp2/datasets/or-quac   --output_file=tmp2/results/or-quac/multi_task.jsonl  --output_trec_file=tmp2/results/or-quac/multi_task.trec  --model_type=dpr  --output_query_type=test.raw  --use_gpu
+fi
